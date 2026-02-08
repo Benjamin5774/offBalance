@@ -4,6 +4,8 @@
 #include "Components/PrimitiveComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+// 仅在 cpp 中引用，避免头文件循环依赖
+#include "MsFallBall.h"
 
 UMsFallBallMovementComponent::UMsFallBallMovementComponent()
 {
@@ -54,6 +56,18 @@ void UMsFallBallMovementComponent::TickComponent(float DeltaTime, ELevelTick Tic
 void UMsFallBallMovementComponent::AddMovementInput(FVector2D Vector)
 {
 	PendingMovementInput += Vector;
+
+	// 让“所有来源的 AddMovementInput（含 WASD/手柄/蓝图）”都能驱动摇摆输入，
+	// 从而保证摄像机/反向摇摆对象在键鼠与手柄模式下表现一致。
+	if (AMsFallBall* BallPawn = Cast<AMsFallBall>(GetOwner()))
+	{
+		const FVector2D Clamped(
+			FMath::Clamp(PendingMovementInput.X, -1.f, 1.f),
+			FMath::Clamp(PendingMovementInput.Y, -1.f, 1.f)
+		);
+		BallPawn->SetSwayInput(Clamped);
+		BallPawn->SetAntiSwayInput(Clamped);
+	}
 }
 
 void UMsFallBallMovementComponent::SetPhysicsBody(UPrimitiveComponent* InPhysicsBody)

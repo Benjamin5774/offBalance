@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "MsFallBall.h"
@@ -33,6 +33,8 @@ void AMsFallBall::BeginPlay()
 	{
 		MovementComponent->SetPhysicsBody(BallMesh);
 	}
+	// 仅通过 Tag 自动查找 AntiSway 对象（不再依赖编辑器手动选择框）
+	SetAntiSwayFromTag();
 }
 
 // Called every frame
@@ -158,18 +160,18 @@ void AMsFallBall::UpdateSwayActor(float DeltaTime)
 	}
 
 	// 使用 AntiSwayInput，取反实现翻转；bSwayOnlyAD 时仅 X
-	const float TargetPitch = bSwayOnlyAD ? 0.f : (-AntiSwayInput.Y * SwayValue);
-	const float TargetRoll = -AntiSwayInput.X * SwayValue;
+	const float TargetPitch = bSwayOnlyAD ? 0.f : (-AntiSwayInput.Y * AntiSwayValue);
+	const float TargetRoll = -AntiSwayInput.X * AntiSwayValue;
 
-	if (SwaySmoothSpeed <= 0.f)
+	if (AntiSwaySmoothSpeed <= 0.f)
 	{
 		CurrentActorPitch = TargetPitch;
 		CurrentActorRoll = TargetRoll;
 	}
 	else
 	{
-		CurrentActorPitch = FMath::FInterpTo(CurrentActorPitch, TargetPitch, DeltaTime, SwaySmoothSpeed);
-		CurrentActorRoll = FMath::FInterpTo(CurrentActorRoll, TargetRoll, DeltaTime, SwaySmoothSpeed);
+		CurrentActorPitch = FMath::FInterpTo(CurrentActorPitch, TargetPitch, DeltaTime, AntiSwaySmoothSpeed);
+		CurrentActorRoll = FMath::FInterpTo(CurrentActorRoll, TargetRoll, DeltaTime, AntiSwaySmoothSpeed);
 	}
 
 	const FRotator Delta = FRotator(CurrentActorPitch, 0.f, CurrentActorRoll);
