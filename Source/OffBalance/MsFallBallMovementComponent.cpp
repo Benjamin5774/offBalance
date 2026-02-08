@@ -19,14 +19,105 @@ void UMsFallBallMovementComponent::TickComponent(float DeltaTime, ELevelTick Tic
 	UPrimitiveComponent* Body = PhysicsBody;
 	if (!Body || !Body->IsSimulatingPhysics())
 	{
+		InputSamples.Reset();
+		InputSamplesHeadIndex = 0;
+		CurrentLaggedInput = FVector2D::ZeroVector;
 		PendingMovementInput = FVector2D::ZeroVector;
 		return;
 	}
 
 	if (!IsGrounded())
 	{
+		InputSamples.Reset();
+		InputSamplesHeadIndex = 0;
+		CurrentLaggedInput = FVector2D::ZeroVector;
 		PendingMovementInput = FVector2D::ZeroVector;
 		return;
+	}
+
+	// 采样本帧输入（并清空累计，保证“每帧一次”的输入语义）
+	const FVector2D RawInput(
+		FMath::Clamp(PendingMovementInput.X, -1.f, 1.f),
+		FMath::Clamp(PendingMovementInput.Y, -1.f, 1.f)
+	);
+	PendingMovementInput = FVector2D::ZeroVector;
+
+	// 计算“生效输入”：可选延迟 + 松开后惯性衰减
+	FVector2D EffectiveInput = RawInput;
+	if (bSimulateInputLag && InputLagSeconds > 0.f)
+	{
+		UWorld* World = GetWorld();
+		const float Now = World ? World->GetTimeSeconds() : 0.f;
+
+		// 追加样本
+		FMsFallBallInputSample Sample;
+		Sample.TimeSeconds = Now;
+		Sample.Input = RawInput;
+		InputSamples.Add(Sample);
+
+		// 清理过旧样本（保留延迟窗口外一点点缓冲）
+		const float KeepAfter = 0.25f;
+		const float MinTime = Now - (InputLagSeconds + KeepAfter);
+		while (InputSamplesHeadIndex < InputSamples.Num() && InputSamples[InputSamplesHeadIndex].TimeSeconds < MinTime)
+		{
+			++InputSamplesHeadIndex;
+		}
+		// 偶尔收缩数组，避免无限增长
+		if (InputSamplesHeadIndex > 64)
+		{
+			InputSamples.RemoveAt(0, InputSamplesHeadIndex, false);
+			InputSamplesHeadIndex = 0;
+		}
+
+		const float TargetTime = Now - InputLagSeconds;
+		// 找到 <= TargetTime 的最后一个样本
+		FVector2D Delayed = FVector2D::ZeroVector;
+		if (InputSamples.Num() > 0 && InputSamplesHeadIndex < InputSamples.Num())
+		{
+			if (TargetTime >= InputSamples[InputSamplesHeadIndex].TimeSeconds)
+			{
+				int32 Index = InputSamplesHeadIndex;
+				while (Index + 1 < InputSamples.Num() && InputSamples[Index + 1].TimeSeconds <= TargetTime)
+				{
+					++Index;
+				}
+				Delayed = InputSamples[Index].Input;
+			}
+		}
+
+		// 惯性：当延迟后的输入归零时，平滑衰减到 0
+		if (!Delayed.IsNearlyZero())
+		{
+			CurrentLaggedInput = Delayed;
+		}
+		else if (InputInertiaSeconds > 0.f)
+		{
+			// 让“约 InputInertiaSeconds 内基本停下”
+			const float InterpSpeed = 3.f / FMath::Max(InputInertiaSeconds, KINDA_SMALL_NUMBER);
+			CurrentLaggedInput.X = FMath::FInterpTo(CurrentLaggedInput.X, 0.f, DeltaTime, InterpSpeed);
+			CurrentLaggedInput.Y = FMath::FInterpTo(CurrentLaggedInput.Y, 0.f, DeltaTime, InterpSpeed);
+		}
+		else
+		{
+			CurrentLaggedInput = FVector2D::ZeroVector;
+		}
+
+		EffectiveInput = CurrentLaggedInput;
+	}
+	else
+	{
+		// 未启用顿感：清空状态，避免切换开关时残留
+		InputSamples.Reset();
+		InputSamplesHeadIndex = 0;
+		CurrentLaggedInput = RawInput;
+		EffectiveInput = RawInput;
+	}
+
+	// 同步摇摆输入：跟随“生效输入”，保证延迟/惯性对摄像机与 AntiSway 同样有效
+	if (AMsFallBall* BallPawn = Cast<AMsFallBall>(GetOwner()))
+	{
+		BallPawn->SetSwayInput(EffectiveInput);
+		BallPawn->SetAntiSwayInput(EffectiveInput);
 	}
 
 	// 地面摩擦：对水平速度施加反向阻力（与速度成正比）
@@ -42,7 +133,7 @@ void UMsFallBallMovementComponent::TickComponent(float DeltaTime, ELevelTick Tic
 		}
 	}
 
-	if (PendingMovementInput.IsNearlyZero())
+	if (EffectiveInput.IsNearlyZero())
 	{
 		return;
 	}
@@ -50,39 +141,24 @@ void UMsFallBallMovementComponent::TickComponent(float DeltaTime, ELevelTick Tic
 	AActor* Owner = GetOwner();
 	if (!Owner)
 	{
-		PendingMovementInput = FVector2D::ZeroVector;
 		return;
 	}
 
-	const FVector Direction = (Owner->GetActorForwardVector() * PendingMovementInput.Y)
-		+ (Owner->GetActorRightVector() * PendingMovementInput.X);
+	const FVector Direction = (Owner->GetActorForwardVector() * EffectiveInput.Y)
+		+ (Owner->GetActorRightVector() * EffectiveInput.X);
 	if (Direction.IsNearlyZero())
 	{
-		PendingMovementInput = FVector2D::ZeroVector;
 		return;
 	}
 
 	// 推力：优先使用新变量 ThrustForce；若未设置则回退到旧变量 Acceleration（兼容旧数据）
 	const float EffectiveThrust = (ThrustForce > 0.f) ? ThrustForce : Acceleration;
 	Body->AddForce(Direction * EffectiveThrust, NAME_None, true);
-	PendingMovementInput = FVector2D::ZeroVector;
 }
 
 void UMsFallBallMovementComponent::AddMovementInput(FVector2D Vector)
 {
 	PendingMovementInput += Vector;
-
-	// 让“所有来源的 AddMovementInput（含 WASD/手柄/蓝图）”都能驱动摇摆输入，
-	// 从而保证摄像机/反向摇摆对象在键鼠与手柄模式下表现一致。
-	if (AMsFallBall* BallPawn = Cast<AMsFallBall>(GetOwner()))
-	{
-		const FVector2D Clamped(
-			FMath::Clamp(PendingMovementInput.X, -1.f, 1.f),
-			FMath::Clamp(PendingMovementInput.Y, -1.f, 1.f)
-		);
-		BallPawn->SetSwayInput(Clamped);
-		BallPawn->SetAntiSwayInput(Clamped);
-	}
 }
 
 void UMsFallBallMovementComponent::SetPhysicsBody(UPrimitiveComponent* InPhysicsBody)

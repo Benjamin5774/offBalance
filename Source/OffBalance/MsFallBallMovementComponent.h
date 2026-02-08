@@ -9,6 +9,18 @@
 
 class UPrimitiveComponent;
 
+USTRUCT()
+struct FMsFallBallInputSample
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	float TimeSeconds = 0.f;
+
+	UPROPERTY()
+	FVector2D Input = FVector2D::ZeroVector;
+};
+
 /**
  * Movement logic for ball-like pawns: AddForce on a physics body, ground check, and Blueprint-callable AddMovementInput.
  * Assign PhysicsBody (e.g. the ball mesh) via SetPhysicsBody or in the editor.
@@ -46,6 +58,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (DeprecatedProperty, DeprecationMessage = "已改为 ThrustForce。Acceleration 仍保留用于兼容旧数据。"))
 	float Acceleration = 2000.f;
 
+	/** 勾选后启用“输入顿感”：延迟若干秒后输入才生效，并可设置松开后的惯性。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Input", meta = (DisplayName = "Simulate Input Lag"))
+	bool bSimulateInputLag = false;
+
+	/** 输入延迟（秒）：例如 0.1 表示 100ms 后输入才开始生效。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Input", meta = (ClampMin = "0", UIMin = "0", UIMax = "0.5", EditCondition = "bSimulateInputLag"))
+	float InputLagSeconds = 0.10f;
+
+	/**
+	 * 松开输入后的惯性时间（秒）：延迟后的输入从非 0 变成 0 时，会在该时间内逐渐衰减到 0。
+	 * 设为 0 则立即停。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Input", meta = (ClampMin = "0", UIMin = "0", UIMax = "2", EditCondition = "bSimulateInputLag"))
+	float InputInertiaSeconds = 0.25f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
 	float GroundCheckDistance = 6.f;
 
@@ -60,4 +87,11 @@ private:
 	bool IsGrounded() const;
 
 	FVector2D PendingMovementInput = FVector2D::ZeroVector;
+
+	// 输入顿感（延迟/惯性）状态
+	UPROPERTY(Transient)
+	TArray<FMsFallBallInputSample> InputSamples;
+
+	int32 InputSamplesHeadIndex = 0;
+	FVector2D CurrentLaggedInput = FVector2D::ZeroVector;
 };
