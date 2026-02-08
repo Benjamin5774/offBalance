@@ -29,6 +29,19 @@ void UMsFallBallMovementComponent::TickComponent(float DeltaTime, ELevelTick Tic
 		return;
 	}
 
+	// 地面摩擦：对水平速度施加反向阻力（与速度成正比）
+	if (GroundFriction > 0.f)
+	{
+		const FVector Velocity = Body->GetPhysicsLinearVelocity();
+		const FVector HorizontalVelocity(Velocity.X, Velocity.Y, 0.f);
+		if (!HorizontalVelocity.IsNearlyZero())
+		{
+			// 注意：这里使用 bAccelChange=true（按“加速度”施加），因此不要再乘质量，否则会把加速度放大导致“弹飞”。
+			const FVector FrictionAccel = (-HorizontalVelocity) * GroundFriction;
+			Body->AddForce(FrictionAccel, NAME_None, true);
+		}
+	}
+
 	if (PendingMovementInput.IsNearlyZero())
 	{
 		return;
@@ -49,7 +62,9 @@ void UMsFallBallMovementComponent::TickComponent(float DeltaTime, ELevelTick Tic
 		return;
 	}
 
-	Body->AddForce(Direction * Acceleration, NAME_None, true);
+	// 推力：优先使用新变量 ThrustForce；若未设置则回退到旧变量 Acceleration（兼容旧数据）
+	const float EffectiveThrust = (ThrustForce > 0.f) ? ThrustForce : Acceleration;
+	Body->AddForce(Direction * EffectiveThrust, NAME_None, true);
 	PendingMovementInput = FVector2D::ZeroVector;
 }
 

@@ -31,7 +31,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Movement")
 	void SetPhysicsBody(UPrimitiveComponent* InPhysicsBody);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	/** 推力（力）大小：输入为 1 时施加的基础力（单位随 UE 物理，通常可理解为“推的力度”）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0", UIMin = "0", UIMax = "20000"))
+	float ThrustForce = 2000.f;
+
+	/**
+	 * 地面摩擦系数：越大越“黏”，更快停下、更不打滑。
+	 * 实现方式为在落地时对水平速度施加反向阻力（与速度成正比）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0", UIMin = "0", UIMax = "50"))
+	float GroundFriction = 8.f;
+
+	// 兼容旧变量名（如果你蓝图/关卡里已经改过 Acceleration，不会立刻失效）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (DeprecatedProperty, DeprecationMessage = "已改为 ThrustForce。Acceleration 仍保留用于兼容旧数据。"))
 	float Acceleration = 2000.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
