@@ -36,11 +36,17 @@ void UMsFallBallMovementComponent::TickComponent(float DeltaTime, ELevelTick Tic
 	}
 
 	// 采样本帧输入（并清空累计，保证“每帧一次”的输入语义）
-	const FVector2D RawInput(
+	FVector2D RawInput(
 		FMath::Clamp(PendingMovementInput.X, -1.f, 1.f),
 		FMath::Clamp(PendingMovementInput.Y, -1.f, 1.f)
 	);
 	PendingMovementInput = FVector2D::ZeroVector;
+
+	// 开启自动向前时，禁用原输入中的“向前”（Y > 0）部分，保留后退与左右输入。
+	if (bEnableAutoForward)
+	{
+		RawInput.Y = FMath::Min(RawInput.Y, 0.f);
+	}
 
 	// 计算“生效输入”：可选延迟 + 松开后惯性衰减
 	FVector2D EffectiveInput = RawInput;
@@ -133,7 +139,8 @@ void UMsFallBallMovementComponent::TickComponent(float DeltaTime, ELevelTick Tic
 		}
 	}
 
-	if (EffectiveInput.IsNearlyZero())
+	const bool bApplyAutoForward = bEnableAutoForward && !FMath::IsNearlyZero(AutoForwardThrustForce);
+	if (EffectiveInput.IsNearlyZero() && !bApplyAutoForward)
 	{
 		return;
 	}
@@ -146,14 +153,19 @@ void UMsFallBallMovementComponent::TickComponent(float DeltaTime, ELevelTick Tic
 
 	const FVector Direction = (Owner->GetActorForwardVector() * EffectiveInput.Y)
 		+ (Owner->GetActorRightVector() * EffectiveInput.X);
-	if (Direction.IsNearlyZero())
-	{
-		return;
-	}
 
 	// 推力：优先使用新变量 ThrustForce；若未设置则回退到旧变量 Acceleration（兼容旧数据）
 	const float EffectiveThrust = (ThrustForce > 0.f) ? ThrustForce : Acceleration;
-	Body->AddForce(Direction * EffectiveThrust, NAME_None, true);
+	if (!Direction.IsNearlyZero())
+	{
+		Body->AddForce(Direction * EffectiveThrust, NAME_None, true);
+	}
+
+	// 自动向前推力：独立于手动输入，开启后持续向前施加。
+	if (bApplyAutoForward)
+	{
+		Body->AddForce(Owner->GetActorForwardVector() * AutoForwardThrustForce, NAME_None, true);
+	}
 }
 
 void UMsFallBallMovementComponent::AddMovementInput(FVector2D Vector)

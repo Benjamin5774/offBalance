@@ -47,6 +47,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0", UIMin = "0", UIMax = "20000"))
 	float ThrustForce = 2000.f;
 
+	/** 自动向前开关。开启后会禁用原输入里的“向前”输入，并持续向前施加推力。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Auto Forward")
+	bool bEnableAutoForward = false;
+
+	/** 自动向前推力（按加速度施加）。设为 0 可临时关闭自动向前效果。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Auto Forward", meta = (ClampMin = "0", UIMin = "0", UIMax = "20000", EditCondition = "bEnableAutoForward"))
+	float AutoForwardThrustForce = 1200.f;
+
 	/**
 	 * 地面摩擦系数：越大越“黏”，更快停下、更不打滑。
 	 * 实现方式为在落地时对水平速度施加反向阻力（与速度成正比）。
