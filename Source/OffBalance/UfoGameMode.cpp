@@ -30,6 +30,7 @@ void AUfoGameMode::BeginPlay()
 	RemainingTime = GameDurationSeconds;
 	bGameOver = false;
 
+	SetupGameplayInputMode();
 	CreateInGameWidget();
 	UpdateInGameWidget();
 }
@@ -71,6 +72,19 @@ void AUfoGameMode::RestartCurrentGame()
 		return;
 	}
 
+	if (GameOverWidget)
+	{
+		GameOverWidget->RemoveFromParent();
+		GameOverWidget = nullptr;
+	}
+
+	if (InGameWidget)
+	{
+		InGameWidget->RemoveFromParent();
+		InGameWidget = nullptr;
+	}
+
+	SetupGameplayInputMode();
 	UGameplayStatics::SetGamePaused(this, false);
 	UGameplayStatics::OpenLevel(this, FName(*World->GetName()));
 }
@@ -191,6 +205,16 @@ TArray<int32> AUfoGameMode::SaveAndGetTopScores() const
 
 	UGameplayStatics::SaveGameToSlot(SaveGameObject, ScoreSaveSlotName, 0);
 	return SaveGameObject->TopScores;
+}
+
+void AUfoGameMode::SetupGameplayInputMode()
+{
+	if (APlayerController* PlayerController = UGameplayStatics::GetPlayerController(this, 0))
+	{
+		PlayerController->bShowMouseCursor = false;
+		FInputModeGameOnly InputMode;
+		PlayerController->SetInputMode(InputMode);
+	}
 }
 
 void AUfoGameMode::HandleReplayClicked()

@@ -55,6 +55,7 @@ private:
 	void HandleGameOver();
 	void ShowGameOverWidget(const TArray<int32>& TopScores);
 	TArray<int32> SaveAndGetTopScores() const;
+	void SetupGameplayInputMode();
 
 	UFUNCTION()
 	void HandleReplayClicked();
