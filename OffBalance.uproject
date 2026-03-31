@@ -22,15 +22,11 @@
 			]
 		},
 		{
-			"Name": "Water",
-			"Enabled": true
-		},
-		{
-			"Name": "WaterExtras",
-			"Enabled": true
-		},
-		{
 			"Name": "OSC",
+			"Enabled": true
+		},
+		{
+			"Name": "SERIALCOM",
 			"Enabled": true
 		}
 	]

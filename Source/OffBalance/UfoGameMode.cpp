@@ -14,8 +14,8 @@ AUfoGameMode::AUfoGameMode()
 	PrimaryActorTick.bCanEverTick = true;
 	DefaultPawnClass = AUfoPawn::StaticClass();
 
-	// If a Blueprint pawn named BP_UFO exists at /Game/BP_UFO, prefer it automatically.
-	static ConstructorHelpers::FClassFinder<APawn> UfoPawnBlueprintClass(TEXT("/Game/BP_UFO"));
+	// If a Blueprint pawn named BP_UFO exists under /Game/Benjamin, prefer it automatically.
+	static ConstructorHelpers::FClassFinder<APawn> UfoPawnBlueprintClass(TEXT("/Game/Benjamin/BP_UFO"));
 	if (UfoPawnBlueprintClass.Succeeded() && UfoPawnBlueprintClass.Class != nullptr)
 	{
 		DefaultPawnClass = UfoPawnBlueprintClass.Class;
