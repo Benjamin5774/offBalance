@@ -1,5 +1,6 @@
 #include "UfoPawn.h"
 
+#include "Components/BoxComponent.h"
 #include "Components/InputComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
@@ -22,6 +23,16 @@ AUfoPawn::AUfoPawn()
 	UfoMesh->SetupAttachment(VisualRoot);
 	UfoMesh->SetSimulatePhysics(false);
 	UfoMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+
+	AbsorbRangeVisualizer = CreateDefaultSubobject<UBoxComponent>(TEXT("AbsorbRangeVisualizer"));
+	AbsorbRangeVisualizer->SetupAttachment(RootComponent);
+	AbsorbRangeVisualizer->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	AbsorbRangeVisualizer->SetGenerateOverlapEvents(false);
+	AbsorbRangeVisualizer->SetHiddenInGame(true);
+	AbsorbRangeVisualizer->SetCanEverAffectNavigation(false);
+	AbsorbRangeVisualizer->ShapeColor = FColor(80, 200, 255, 120);
+	AbsorbRangeVisualizer->SetLineThickness(1.2f);
+	AbsorbRangeVisualizer->SetIsVisualizationComponent(true);
 }
 
 void AUfoPawn::BeginPlay()
@@ -39,6 +50,14 @@ void AUfoPawn::BeginPlay()
 	{
 		RestVisualScale = VisualRoot->GetRelativeScale3D();
 	}
+
+	RefreshAbsorbRangeVisualizer();
+}
+
+void AUfoPawn::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	RefreshAbsorbRangeVisualizer();
 }
 
 void AUfoPawn::Tick(float DeltaTime)
@@ -78,6 +97,26 @@ void AUfoPawn::Move(const FVector2D& Input)
 	}
 
 	CurrentMoveInput = NewInput;
+}
+
+void AUfoPawn::SetAbsorbAmount(float NewAbsorbAmount)
+{
+	AbsorbAmount = FMath::Max(0.f, NewAbsorbAmount);
+}
+
+void AUfoPawn::AddAbsorbAmount(float DeltaAbsorbAmount)
+{
+	AbsorbAmount = FMath::Max(0.f, AbsorbAmount + DeltaAbsorbAmount);
+}
+
+void AUfoPawn::SetAbsorbSpeed(float NewAbsorbSpeed)
+{
+	AbsorbSpeed = FMath::Max(0.f, NewAbsorbSpeed);
+}
+
+void AUfoPawn::AddAbsorbSpeed(float DeltaAbsorbSpeed)
+{
+	AbsorbSpeed = FMath::Max(0.f, AbsorbSpeed + DeltaAbsorbSpeed);
 }
 
 void AUfoPawn::MoveForwardAxis(float Value)
@@ -170,15 +209,21 @@ void AUfoPawn::UpdateAbsorb(float DeltaTime)
 		AbsorbingComponent = nullptr;
 		AbsorbingPhysicsComponent = nullptr;
 		CurrentAbsorbElapsed = 0.f;
+		AbsorbDetectCooldownRemaining = 0.f;
 		return;
 	}
 
 	if (!IsValid(AbsorbingActor))
 	{
-		AbsorbingActor = FindAbsorbTarget();
-		if (IsValid(AbsorbingActor))
+		AbsorbDetectCooldownRemaining -= DeltaTime;
+		if (AbsorbDetectCooldownRemaining <= 0.f)
 		{
-			PrepareActorForAbsorb(AbsorbingActor);
+			AbsorbingActor = FindAbsorbTarget();
+			AbsorbDetectCooldownRemaining = FMath::Max(0.f, AbsorbDetectInterval);
+			if (IsValid(AbsorbingActor))
+			{
+				PrepareActorForAbsorb(AbsorbingActor);
+			}
 		}
 	}
 
@@ -188,7 +233,8 @@ void AUfoPawn::UpdateAbsorb(float DeltaTime)
 	}
 
 	const FVector TargetLocation = GetAbsorbTargetLocation();
-	CurrentAbsorbElapsed += DeltaTime;
+	const float EffectiveAbsorbRate = FMath::Max(0.f, AbsorbSpeed) * FMath::Max(0.f, AbsorbAmount);
+	CurrentAbsorbElapsed += DeltaTime * EffectiveAbsorbRate;
 
 	const float Duration = FMath::Max(AbsorbDuration, KINDA_SMALL_NUMBER);
 	const float Alpha = FMath::Clamp(CurrentAbsorbElapsed / Duration, 0.f, 1.f);
@@ -201,6 +247,20 @@ void AUfoPawn::UpdateAbsorb(float DeltaTime)
 	{
 		CompleteAbsorb();
 	}
+}
+
+void AUfoPawn::RefreshAbsorbRangeVisualizer()
+{
+	if (!AbsorbRangeVisualizer)
+	{
+		return;
+	}
+
+	const float Radius = FMath::Max(AbsorbRadius, 1.f);
+	const float Depth = FMath::Max(AbsorbDepth, 0.f);
+	AbsorbRangeVisualizer->SetBoxExtent(FVector(Radius, Radius, FMath::Max(Depth * 0.5f, 1.f)));
+	AbsorbRangeVisualizer->SetRelativeLocation(FVector(0.f, 0.f, -Depth * 0.5f));
+	AbsorbRangeVisualizer->SetHiddenInGame(true);
 }
 
 void AUfoPawn::UpdateCollectPulse(float DeltaTime)
@@ -225,7 +285,12 @@ AActor* AUfoPawn::FindAbsorbTarget() const
 	UGameplayStatics::GetAllActorsWithTag(this, GrabbableActorTag, Candidates);
 
 	const FVector UfoLocation = GetActorLocation();
-	const float MaxHorizontalDistanceSq = FMath::Square(AbsorbRadius);
+	const FVector AbsorbBoxCenter = UfoLocation + FVector(0.f, 0.f, -AbsorbDepth * 0.5f);
+	const FVector AbsorbBoxExtent(
+		FMath::Max(AbsorbRadius, 0.f),
+		FMath::Max(AbsorbRadius, 0.f),
+		FMath::Max(AbsorbDepth * 0.5f, 0.f)
+	);
 
 	AActor* BestActor = nullptr;
 	float BestDistanceSq = TNumericLimits<float>::Max();
@@ -237,19 +302,21 @@ AActor* AUfoPawn::FindAbsorbTarget() const
 			continue;
 		}
 
-		const FVector Delta = UfoLocation - Candidate->GetActorLocation();
-		if (Delta.Z < 0.f || Delta.Z > AbsorbDepth)
+		FVector CandidateOrigin = FVector::ZeroVector;
+		FVector CandidateExtent = FVector::ZeroVector;
+		Candidate->GetActorBounds(true, CandidateOrigin, CandidateExtent);
+
+		const bool bOverlapsAbsorbBox =
+			FMath::Abs(CandidateOrigin.X - AbsorbBoxCenter.X) <= (CandidateExtent.X + AbsorbBoxExtent.X) &&
+			FMath::Abs(CandidateOrigin.Y - AbsorbBoxCenter.Y) <= (CandidateExtent.Y + AbsorbBoxExtent.Y) &&
+			FMath::Abs(CandidateOrigin.Z - AbsorbBoxCenter.Z) <= (CandidateExtent.Z + AbsorbBoxExtent.Z);
+		if (!bOverlapsAbsorbBox)
 		{
 			continue;
 		}
 
-		const float HorizontalDistanceSq = FVector2D(Delta.X, Delta.Y).SizeSquared();
-		if (HorizontalDistanceSq > MaxHorizontalDistanceSq)
-		{
-			continue;
-		}
-
-		const float DistanceSq = Delta.SizeSquared();
+		const FVector ClosestPointOnBounds = UfoLocation.BoundToBox(CandidateOrigin - CandidateExtent, CandidateOrigin + CandidateExtent);
+		const float DistanceSq = FVector::DistSquared(UfoLocation, ClosestPointOnBounds);
 		if (DistanceSq < BestDistanceSq)
 		{
 			BestDistanceSq = DistanceSq;
@@ -317,6 +384,7 @@ void AUfoPawn::CompleteAbsorb()
 	AbsorbingComponent = nullptr;
 	AbsorbingPhysicsComponent = nullptr;
 	CurrentAbsorbElapsed = 0.f;
+	AbsorbDetectCooldownRemaining = 0.f;
 	CurrentVisualScaleMultiplier = CollectPulseScale;
 }
 
@@ -379,3 +447,11 @@ void AUfoPawn::SetCurrentAbsorbingLocation(const FVector& NewLocation)
 		AbsorbingActor->SetActorLocation(NewLocation, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 }
+
+#if WITH_EDITOR
+void AUfoPawn::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+	RefreshAbsorbRangeVisualizer();
+}
+#endif
