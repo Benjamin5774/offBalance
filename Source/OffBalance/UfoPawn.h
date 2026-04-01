@@ -8,7 +8,8 @@ class AActor;
 class UBoxComponent;
 class UPrimitiveComponent;
 class USceneComponent;
-class UStaticMeshComponent;
+// 引入骨骼网格体组件的前向声明
+class USkeletalMeshComponent;
 struct FPropertyChangedEvent;
 
 UCLASS()
@@ -23,6 +24,9 @@ public:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+
+	// === 核心新增：重写获取速度函数，让动画蓝图（如 AnimDynamics）能读到真实的移动速度 ===
+	virtual FVector GetVelocity() const override;
 
 	UFUNCTION(BlueprintCallable, Category = "UFO|Move")
 	void Move(const FVector2D& Input);
@@ -46,8 +50,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UFO")
 	TObjectPtr<USceneComponent> VisualRoot;
 
+	// 修改为骨骼网格体组件
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UFO")
-	TObjectPtr<UStaticMeshComponent> UfoMesh;
+	TObjectPtr<USkeletalMeshComponent> UfoMesh;
 
 	// 仅用于编辑器里可视化吸附体积，游戏内隐藏且不参与碰撞。
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UFO|Absorb")
@@ -55,6 +60,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UFO|Move", meta = (ClampMin = "0"))
 	float MoveSpeed = 900.f;
+
+	// === 新增：速度插值速率，用于控制起步和刹车的惯性滑行感。数值越小越滑 ===
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UFO|Move", meta = (ClampMin = "0.1"))
+	float MovementInterpSpeed = 5.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UFO|Input")
 	bool bEnableWASDInput = true;
@@ -135,6 +144,10 @@ private:
 
 	FVector StartLocation = FVector::ZeroVector;
 	FVector2D CurrentMoveInput = FVector2D::ZeroVector;
+
+	// === 新增：当前的实际移动速度，配合 C++ 逻辑计算真实加速度 ===
+	FVector CurrentVelocity = FVector::ZeroVector;
+
 	float ForwardAxisValue = 0.f;
 	float RightAxisValue = 0.f;
 	float CurrentTiltPitch = 0.f;

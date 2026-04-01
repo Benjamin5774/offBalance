@@ -1,10 +1,11 @@
-#include "UfoPawn.h"
+﻿#include "UfoPawn.h"
 
 #include "Components/BoxComponent.h"
 #include "Components/InputComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
-#include "Components/StaticMeshComponent.h"
+// 引入骨骼网格体组件头文件
+#include "Components/SkeletalMeshComponent.h" 
 #include "Kismet/GameplayStatics.h"
 #include "UfoGameMode.h"
 
@@ -19,7 +20,8 @@ AUfoPawn::AUfoPawn()
 	VisualRoot = CreateDefaultSubobject<USceneComponent>(TEXT("VisualRoot"));
 	VisualRoot->SetupAttachment(RootComponent);
 
-	UfoMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("UfoMesh"));
+	// 修改为 SkeletalMeshComponent 以支持骨骼动画蓝图
+	UfoMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("UfoMesh"));
 	UfoMesh->SetupAttachment(VisualRoot);
 	UfoMesh->SetSimulatePhysics(false);
 	UfoMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -84,6 +86,12 @@ void AUfoPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 	PlayerInputComponent->BindAxis(TEXT("UFO_MoveRight"), this, &AUfoPawn::MoveRightAxis);
 }
 
+// === 新增：返回我们自己计算的真实平滑速度给引擎底层 ===
+FVector AUfoPawn::GetVelocity() const
+{
+	return CurrentVelocity;
+}
+
 void AUfoPawn::Move(const FVector2D& Input)
 {
 	FVector2D NewInput(
@@ -141,23 +149,28 @@ void AUfoPawn::MoveRightAxis(float Value)
 	Move(FVector2D(RightAxisValue, ForwardAxisValue));
 }
 
+// 核心修改部分：引入平滑速度计算 (VInterpTo) 并更新 CurrentVelocity
 void AUfoPawn::ApplyMovement(float DeltaTime)
 {
-	if (CurrentMoveInput.IsNearlyZero())
-	{
-		return;
-	}
-
+	// 1. 计算玩家期望的目标方向
 	const FVector MoveDirection =
 		(GetActorForwardVector() * CurrentMoveInput.Y) +
 		(GetActorRightVector() * CurrentMoveInput.X);
 
-	if (MoveDirection.IsNearlyZero())
+	// 2. 计算玩家期望的目标速度 (如果没有输入，目标速度就是 Zero)
+	const FVector TargetVelocity = MoveDirection.GetSafeNormal() * MoveSpeed;
+
+	// 3. 使用 VInterpTo 将当前速度平滑过渡到目标速度
+	CurrentVelocity = FMath::VInterpTo(CurrentVelocity, TargetVelocity, DeltaTime, MovementInterpSpeed);
+
+	// 4. 如果当前实际速度接近 0，则不进行位置偏移运算
+	if (CurrentVelocity.IsNearlyZero())
 	{
 		return;
 	}
 
-	const FVector Delta = MoveDirection.GetSafeNormal() * MoveSpeed * DeltaTime;
+	// 5. 使用真实的平滑速度来移动 Pawn
+	const FVector Delta = CurrentVelocity * DeltaTime;
 	AddActorWorldOffset(Delta, true);
 }
 
